@@ -24,7 +24,12 @@ import diffusers
 from diffusers import DDPMPipeline, DDPMScheduler, UNet2DModel
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
-from diffusers.utils import check_min_version, is_accelerate_version, is_tensorboard_available, is_wandb_available
+from diffusers.utils import (
+    check_min_version,
+    is_accelerate_version,
+    is_tensorboard_available,
+    is_wandb_available,
+)
 from diffusers.utils.import_utils import is_xformers_available
 
 
@@ -63,6 +68,14 @@ def parse_args():
             " dataset). It can also be a path pointing to a local copy of a dataset in your filesystem,"
             " or to a folder containing files that HF Datasets can understand."
         ),
+    )
+    # this will ensure that we keep only the smallest loss
+    parser.add_argument(
+        "--save_strategy",
+        type=str,
+        default="regular",
+        choices=["regular", "recent_and_best"],
+        help="Checkpoint saving strategy. 'regular' for normal behavior, 'recent_and_best' for keeping only recent and best checkpoints.",
     )
     parser.add_argument(
         "--dataset_config_name",
@@ -124,10 +137,16 @@ def parse_args():
         help="whether to randomly flip images horizontally",
     )
     parser.add_argument(
-        "--train_batch_size", type=int, default=16, help="Batch size (per device) for the training dataloader."
+        "--train_batch_size",
+        type=int,
+        default=16,
+        help="Batch size (per device) for the training dataloader.",
     )
     parser.add_argument(
-        "--eval_batch_size", type=int, default=16, help="The number of images to generate for evaluation."
+        "--eval_batch_size",
+        type=int,
+        default=16,
+        help="The number of images to generate for evaluation.",
     )
     parser.add_argument(
         "--dataloader_num_workers",
@@ -139,9 +158,17 @@ def parse_args():
         ),
     )
     parser.add_argument("--num_epochs", type=int, default=100)
-    parser.add_argument("--save_images_epochs", type=int, default=10, help="How often to save images during training.")
     parser.add_argument(
-        "--save_model_epochs", type=int, default=10, help="How often to save the model during training."
+        "--save_images_epochs",
+        type=int,
+        default=10,
+        help="How often to save images during training.",
+    )
+    parser.add_argument(
+        "--save_model_epochs",
+        type=int,
+        default=10,
+        help="How often to save the model during training.",
     )
     parser.add_argument(
         "--gradient_accumulation_steps",
@@ -165,24 +192,69 @@ def parse_args():
         ),
     )
     parser.add_argument(
-        "--lr_warmup_steps", type=int, default=500, help="Number of steps for the warmup in the lr scheduler."
+        "--lr_warmup_steps",
+        type=int,
+        default=500,
+        help="Number of steps for the warmup in the lr scheduler.",
     )
-    parser.add_argument("--adam_beta1", type=float, default=0.95, help="The beta1 parameter for the Adam optimizer.")
-    parser.add_argument("--adam_beta2", type=float, default=0.999, help="The beta2 parameter for the Adam optimizer.")
     parser.add_argument(
-        "--adam_weight_decay", type=float, default=1e-6, help="Weight decay magnitude for the Adam optimizer."
+        "--adam_beta1",
+        type=float,
+        default=0.95,
+        help="The beta1 parameter for the Adam optimizer.",
     )
-    parser.add_argument("--adam_epsilon", type=float, default=1e-08, help="Epsilon value for the Adam optimizer.")
+    parser.add_argument(
+        "--adam_beta2",
+        type=float,
+        default=0.999,
+        help="The beta2 parameter for the Adam optimizer.",
+    )
+    parser.add_argument(
+        "--adam_weight_decay",
+        type=float,
+        default=1e-6,
+        help="Weight decay magnitude for the Adam optimizer.",
+    )
+    parser.add_argument(
+        "--adam_epsilon",
+        type=float,
+        default=1e-08,
+        help="Epsilon value for the Adam optimizer.",
+    )
     parser.add_argument(
         "--use_ema",
         action="store_true",
         help="Whether to use Exponential Moving Average for the final model weights.",
     )
-    parser.add_argument("--ema_inv_gamma", type=float, default=1.0, help="The inverse gamma value for the EMA decay.")
-    parser.add_argument("--ema_power", type=float, default=3 / 4, help="The power value for the EMA decay.")
-    parser.add_argument("--ema_max_decay", type=float, default=0.9999, help="The maximum decay magnitude for EMA.")
-    parser.add_argument("--push_to_hub", action="store_true", help="Whether or not to push the model to the Hub.")
-    parser.add_argument("--hub_token", type=str, default=None, help="The token to use to push to the Model Hub.")
+    parser.add_argument(
+        "--ema_inv_gamma",
+        type=float,
+        default=1.0,
+        help="The inverse gamma value for the EMA decay.",
+    )
+    parser.add_argument(
+        "--ema_power",
+        type=float,
+        default=3 / 4,
+        help="The power value for the EMA decay.",
+    )
+    parser.add_argument(
+        "--ema_max_decay",
+        type=float,
+        default=0.9999,
+        help="The maximum decay magnitude for EMA.",
+    )
+    parser.add_argument(
+        "--push_to_hub",
+        action="store_true",
+        help="Whether or not to push the model to the Hub.",
+    )
+    parser.add_argument(
+        "--hub_token",
+        type=str,
+        default=None,
+        help="The token to use to push to the Model Hub.",
+    )
     parser.add_argument(
         "--hub_model_id",
         type=str,
@@ -190,7 +262,9 @@ def parse_args():
         help="The name of the repository to keep in sync with the local `output_dir`.",
     )
     parser.add_argument(
-        "--hub_private_repo", action="store_true", help="Whether or not to create a private repository."
+        "--hub_private_repo",
+        action="store_true",
+        help="Whether or not to create a private repository.",
     )
     parser.add_argument(
         "--logger",
@@ -211,7 +285,12 @@ def parse_args():
             " *output_dir/runs/**CURRENT_DATETIME_HOSTNAME***."
         ),
     )
-    parser.add_argument("--local_rank", type=int, default=-1, help="For distributed training: local_rank")
+    parser.add_argument(
+        "--local_rank",
+        type=int,
+        default=-1,
+        help="For distributed training: local_rank",
+    )
     parser.add_argument(
         "--mixed_precision",
         type=str,
@@ -258,7 +337,9 @@ def parse_args():
         ),
     )
     parser.add_argument(
-        "--enable_xformers_memory_efficient_attention", action="store_true", help="Whether or not to use xformers."
+        "--enable_xformers_memory_efficient_attention",
+        action="store_true",
+        help="Whether or not to use xformers.",
     )
 
     args = parser.parse_args()
@@ -267,16 +348,22 @@ def parse_args():
         args.local_rank = env_local_rank
 
     if args.dataset_name is None and args.train_data_dir is None:
-        raise ValueError("You must specify either a dataset name from the hub or a train data directory.")
+        raise ValueError(
+            "You must specify either a dataset name from the hub or a train data directory."
+        )
 
     return args
 
 
 def main(args):
     logging_dir = os.path.join(args.output_dir, args.logging_dir)
-    accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
+    accelerator_project_config = ProjectConfiguration(
+        project_dir=args.output_dir, logging_dir=logging_dir
+    )
 
-    kwargs = InitProcessGroupKwargs(timeout=timedelta(seconds=7200))  # a big number for high resolution or big dataset
+    kwargs = InitProcessGroupKwargs(
+        timeout=timedelta(seconds=7200)
+    )  # a big number for high resolution or big dataset
     accelerator = Accelerator(
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         mixed_precision=args.mixed_precision,
@@ -287,11 +374,15 @@ def main(args):
 
     if args.logger == "tensorboard":
         if not is_tensorboard_available():
-            raise ImportError("Make sure to install tensorboard if you want to use it for logging during training.")
+            raise ImportError(
+                "Make sure to install tensorboard if you want to use it for logging during training."
+            )
 
     elif args.logger == "wandb":
         if not is_wandb_available():
-            raise ImportError("Make sure to install wandb if you want to use it for logging during training.")
+            raise ImportError(
+                "Make sure to install wandb if you want to use it for logging during training."
+            )
         import wandb
 
     # `accelerate` 0.16.0 will have better support for customized saving
@@ -310,7 +401,9 @@ def main(args):
 
         def load_model_hook(models, input_dir):
             if args.use_ema:
-                load_model = EMAModel.from_pretrained(os.path.join(input_dir, "unet_ema"), UNet2DModel)
+                load_model = EMAModel.from_pretrained(
+                    os.path.join(input_dir, "unet_ema"), UNet2DModel
+                )
                 ema_model.load_state_dict(load_model.state_dict())
                 ema_model.to(accelerator.device)
                 del load_model
@@ -350,7 +443,9 @@ def main(args):
 
         if args.push_to_hub:
             repo_id = create_repo(
-                repo_id=args.hub_model_id or Path(args.output_dir).name, exist_ok=True, token=args.hub_token
+                repo_id=args.hub_model_id or Path(args.output_dir).name,
+                exist_ok=True,
+                token=args.hub_token,
             ).repo_id
 
     # Initialize the model
@@ -413,10 +508,14 @@ def main(args):
                 )
             model.enable_xformers_memory_efficient_attention()
         else:
-            raise ValueError("xformers is not available. Make sure it is installed correctly")
+            raise ValueError(
+                "xformers is not available. Make sure it is installed correctly"
+            )
 
     # Initialize the scheduler
-    accepts_prediction_type = "prediction_type" in set(inspect.signature(DDPMScheduler.__init__).parameters.keys())
+    accepts_prediction_type = "prediction_type" in set(
+        inspect.signature(DDPMScheduler.__init__).parameters.keys()
+    )
     if accepts_prediction_type:
         noise_scheduler = DDPMScheduler(
             num_train_timesteps=args.ddpm_num_steps,
@@ -424,7 +523,10 @@ def main(args):
             prediction_type=args.prediction_type,
         )
     else:
-        noise_scheduler = DDPMScheduler(num_train_timesteps=args.ddpm_num_steps, beta_schedule=args.ddpm_beta_schedule)
+        noise_scheduler = DDPMScheduler(
+            num_train_timesteps=args.ddpm_num_steps,
+            beta_schedule=args.ddpm_beta_schedule,
+        )
 
     # Initialize the optimizer
     optimizer = torch.optim.AdamW(
@@ -448,16 +550,31 @@ def main(args):
             split="train",
         )
     else:
-        dataset = load_dataset("imagefolder", data_dir=args.train_data_dir, cache_dir=args.cache_dir, split="train")
+        dataset = load_dataset(
+            "imagefolder",
+            data_dir=args.train_data_dir,
+            cache_dir=args.cache_dir,
+            split="train",
+        )
         # See more about loading custom images at
         # https://huggingface.co/docs/datasets/v2.4.0/en/image_load#imagefolder
 
     # Preprocessing the datasets and DataLoaders creation.
     augmentations = transforms.Compose(
         [
-            transforms.Resize(args.resolution, interpolation=transforms.InterpolationMode.BILINEAR),
-            transforms.CenterCrop(args.resolution) if args.center_crop else transforms.RandomCrop(args.resolution),
-            transforms.RandomHorizontalFlip() if args.random_flip else transforms.Lambda(lambda x: x),
+            transforms.Resize(
+                args.resolution, interpolation=transforms.InterpolationMode.BILINEAR
+            ),
+            (
+                transforms.CenterCrop(args.resolution)
+                if args.center_crop
+                else transforms.RandomCrop(args.resolution)
+            ),
+            (
+                transforms.RandomHorizontalFlip()
+                if args.random_flip
+                else transforms.Lambda(lambda x: x)
+            ),
             transforms.ToTensor(),
             transforms.Normalize([0.5], [0.5]),
         ]
@@ -471,7 +588,10 @@ def main(args):
 
     dataset.set_transform(transform_images)
     train_dataloader = torch.utils.data.DataLoader(
-        dataset, batch_size=args.train_batch_size, shuffle=True, num_workers=args.dataloader_num_workers
+        dataset,
+        batch_size=args.train_batch_size,
+        shuffle=True,
+        num_workers=args.dataloader_num_workers,
     )
 
     # Initialize the learning rate scheduler
@@ -496,15 +616,23 @@ def main(args):
         run = os.path.split(__file__)[-1].split(".")[0]
         accelerator.init_trackers(run)
 
-    total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
-    num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
+    total_batch_size = (
+        args.train_batch_size
+        * accelerator.num_processes
+        * args.gradient_accumulation_steps
+    )
+    num_update_steps_per_epoch = math.ceil(
+        len(train_dataloader) / args.gradient_accumulation_steps
+    )
     max_train_steps = args.num_epochs * num_update_steps_per_epoch
 
     logger.info("***** Running training *****")
     logger.info(f"  Num examples = {len(dataset)}")
     logger.info(f"  Num Epochs = {args.num_epochs}")
     logger.info(f"  Instantaneous batch size per device = {args.train_batch_size}")
-    logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
+    logger.info(
+        f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}"
+    )
     logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
     logger.info(f"  Total optimization steps = {max_train_steps}")
 
@@ -534,27 +662,42 @@ def main(args):
 
             resume_global_step = global_step * args.gradient_accumulation_steps
             first_epoch = global_step // num_update_steps_per_epoch
-            resume_step = resume_global_step % (num_update_steps_per_epoch * args.gradient_accumulation_steps)
+            resume_step = resume_global_step % (
+                num_update_steps_per_epoch * args.gradient_accumulation_steps
+            )
 
-    # Train!
+    lowest_loss = float("inf")
+    #training loop
     for epoch in range(first_epoch, args.num_epochs):
         model.train()
-        progress_bar = tqdm(total=num_update_steps_per_epoch, disable=not accelerator.is_local_main_process)
+        progress_bar = tqdm(
+            total=num_update_steps_per_epoch,
+            disable=not accelerator.is_local_main_process,
+        )
         progress_bar.set_description(f"Epoch {epoch}")
         for step, batch in enumerate(train_dataloader):
             # Skip steps until we reach the resumed step
-            if args.resume_from_checkpoint and epoch == first_epoch and step < resume_step:
+            if (
+                args.resume_from_checkpoint
+                and epoch == first_epoch
+                and step < resume_step
+            ):
                 if step % args.gradient_accumulation_steps == 0:
                     progress_bar.update(1)
                 continue
 
             clean_images = batch["input"].to(weight_dtype)
             # Sample noise that we'll add to the images
-            noise = torch.randn(clean_images.shape, dtype=weight_dtype, device=clean_images.device)
+            noise = torch.randn(
+                clean_images.shape, dtype=weight_dtype, device=clean_images.device
+            )
             bsz = clean_images.shape[0]
             # Sample a random timestep for each image
             timesteps = torch.randint(
-                0, noise_scheduler.config.num_train_timesteps, (bsz,), device=clean_images.device
+                0,
+                noise_scheduler.config.num_train_timesteps,
+                (bsz,),
+                device=clean_images.device,
             ).long()
 
             # Add noise to the clean images according to the noise magnitude at each timestep
@@ -566,17 +709,22 @@ def main(args):
                 model_output = model(noisy_images, timesteps).sample
 
                 if args.prediction_type == "epsilon":
-                    loss = F.mse_loss(model_output.float(), noise.float())  # this could have different weights!
+                    loss = F.mse_loss(model_output.float(), noise.float())
                 elif args.prediction_type == "sample":
                     alpha_t = _extract_into_tensor(
-                        noise_scheduler.alphas_cumprod, timesteps, (clean_images.shape[0], 1, 1, 1)
+                        noise_scheduler.alphas_cumprod,
+                        timesteps,
+                        (clean_images.shape[0], 1, 1, 1),
                     )
                     snr_weights = alpha_t / (1 - alpha_t)
-                    # use SNR weighting from distillation paper
-                    loss = snr_weights * F.mse_loss(model_output.float(), clean_images.float(), reduction="none")
+                    loss = snr_weights * F.mse_loss(
+                        model_output.float(), clean_images.float(), reduction="none"
+                    )
                     loss = loss.mean()
                 else:
-                    raise ValueError(f"Unsupported prediction type: {args.prediction_type}")
+                    raise ValueError(
+                        f"Unsupported prediction type: {args.prediction_type}"
+                    )
 
                 accelerator.backward(loss)
 
@@ -595,35 +743,94 @@ def main(args):
 
                 if accelerator.is_main_process:
                     if global_step % args.checkpointing_steps == 0:
-                        # _before_ saving state, check if this save would set us over the `checkpoints_total_limit`
-                        if args.checkpoints_total_limit is not None:
+                        if args.save_strategy == "recent_and_best":
+                            # Remove all existing checkpoints except the two most recent
                             checkpoints = os.listdir(args.output_dir)
-                            checkpoints = [d for d in checkpoints if d.startswith("checkpoint")]
-                            checkpoints = sorted(checkpoints, key=lambda x: int(x.split("-")[1]))
+                            checkpoints = [
+                                d for d in checkpoints if d.startswith("checkpoint")
+                            ]
+                            checkpoints = sorted(
+                                checkpoints,
+                                key=lambda x: int(x.split("-")[1]),
+                                reverse=True,
+                            )
 
-                            # before we save the new checkpoint, we need to have at _most_ `checkpoints_total_limit - 1` checkpoints
-                            if len(checkpoints) >= args.checkpoints_total_limit:
-                                num_to_remove = len(checkpoints) - args.checkpoints_total_limit + 1
-                                removing_checkpoints = checkpoints[0:num_to_remove]
+                            for checkpoint in checkpoints[2:]:
+                                shutil.rmtree(os.path.join(args.output_dir, checkpoint))
 
-                                logger.info(
-                                    f"{len(checkpoints)} checkpoints already exist, removing {len(removing_checkpoints)} checkpoints"
+                            # Save the current checkpoint
+                            save_path = os.path.join(
+                                args.output_dir, f"checkpoint-{global_step}"
+                            )
+                            accelerator.save_state(save_path)
+                            logger.info(f"Saved state to {save_path}")
+
+                            # Check if this is the lowest loss checkpoint
+                            current_loss = loss.detach().item()
+                            if current_loss < lowest_loss:
+                                lowest_loss = current_loss
+                                lowest_loss_path = os.path.join(
+                                    args.output_dir, "lowest_loss_checkpoint"
                                 )
-                                logger.info(f"removing checkpoints: {', '.join(removing_checkpoints)}")
 
-                                for removing_checkpoint in removing_checkpoints:
-                                    removing_checkpoint = os.path.join(args.output_dir, removing_checkpoint)
-                                    shutil.rmtree(removing_checkpoint)
+                                # Remove the previous lowest loss checkpoint if it exists
+                                if os.path.exists(lowest_loss_path):
+                                    shutil.rmtree(lowest_loss_path)
 
-                        save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
-                        accelerator.save_state(save_path)
-                        logger.info(f"Saved state to {save_path}")
+                                # Save the new lowest loss checkpoint
+                                accelerator.save_state(lowest_loss_path)
+                                logger.info(
+                                    f"Saved new lowest loss checkpoint to {lowest_loss_path}"
+                                )
+                        else:
+                            # Original checkpointing logic
+                            if args.checkpoints_total_limit is not None:
+                                checkpoints = os.listdir(args.output_dir)
+                                checkpoints = [
+                                    d for d in checkpoints if d.startswith("checkpoint")
+                                ]
+                                checkpoints = sorted(
+                                    checkpoints, key=lambda x: int(x.split("-")[1])
+                                )
 
-            logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0], "step": global_step}
+                                # before we save the new checkpoint, we need to have at _most_ `checkpoints_total_limit - 1` checkpoints
+                                if len(checkpoints) >= args.checkpoints_total_limit:
+                                    num_to_remove = (
+                                        len(checkpoints)
+                                        - args.checkpoints_total_limit
+                                        + 1
+                                    )
+                                    removing_checkpoints = checkpoints[0:num_to_remove]
+
+                                    logger.info(
+                                        f"{len(checkpoints)} checkpoints already exist, removing {len(removing_checkpoints)} checkpoints"
+                                    )
+                                    logger.info(
+                                        f"removing checkpoints: {', '.join(removing_checkpoints)}"
+                                    )
+
+                                    for removing_checkpoint in removing_checkpoints:
+                                        removing_checkpoint = os.path.join(
+                                            args.output_dir, removing_checkpoint
+                                        )
+                                        shutil.rmtree(removing_checkpoint)
+
+                            save_path = os.path.join(
+                                args.output_dir, f"checkpoint-{global_step}"
+                            )
+                            accelerator.save_state(save_path)
+                            logger.info(f"Saved state to {save_path}")
+
+            logs = {
+                "loss": loss.detach().item(),
+                "lr": lr_scheduler.get_last_lr()[0],
+                "step": global_step,
+            }
             if args.use_ema:
                 logs["ema_decay"] = ema_model.cur_decay_value
             progress_bar.set_postfix(**logs)
             accelerator.log(logs, step=global_step)
+
         progress_bar.close()
 
         accelerator.wait_for_everyone()
@@ -662,11 +869,18 @@ def main(args):
                         tracker = accelerator.get_tracker("tensorboard", unwrap=True)
                     else:
                         tracker = accelerator.get_tracker("tensorboard")
-                    tracker.add_images("test_samples", images_processed.transpose(0, 3, 1, 2), epoch)
+                    tracker.add_images(
+                        "test_samples", images_processed.transpose(0, 3, 1, 2), epoch
+                    )
                 elif args.logger == "wandb":
                     # Upcoming `log_images` helper coming in https://github.com/huggingface/accelerate/pull/962/files
                     accelerator.get_tracker("wandb").log(
-                        {"test_samples": [wandb.Image(img) for img in images_processed], "epoch": epoch},
+                        {
+                            "test_samples": [
+                                wandb.Image(img) for img in images_processed
+                            ],
+                            "epoch": epoch,
+                        },
                         step=global_step,
                     )
 
